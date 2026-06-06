@@ -1,0 +1,3 @@
+The company had supply chain issues starting in April.
+The sales dashboard should be analyzed together with this operational context.
+If the chart shows a decline after March, the likely cause may be operational supply disruption rather than lack of demand.

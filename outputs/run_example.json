@@ -1,0 +1,113 @@
+{
+  "goal": "Answer the user's question using multimodal evidence",
+  "success_criteria": [
+    "Use evidence from at least two modalities",
+    "Return a grounded answer",
+    "Return a confidence score",
+    "Ask for clarification if evidence is insufficient"
+  ],
+  "user_question": "What is the main problem shown in the files, and what should we do next?",
+  "control_state": "DONE",
+  "files": [
+    "examples/dashboard.png",
+    "examples/context.txt"
+  ],
+  "available_modalities": [
+    "document",
+    "image"
+  ],
+  "selected_tools": [
+    "analyze_image",
+    "analyze_document",
+    "validate_evidence",
+    "generate_answer"
+  ],
+  "evidence": [
+    {
+      "type": "evidence",
+      "tool": "analyze_image",
+      "modality": "image",
+      "source": "examples/dashboard.png",
+      "content": "The image appears to contain visual information such as a chart, dashboard, diagram, or screenshot relevant to the question.",
+      "confidence": 0.7
+    },
+    {
+      "type": "evidence",
+      "tool": "analyze_document",
+      "modality": "document",
+      "source": "examples/context.txt",
+      "content": "The document states: The company had supply chain issues starting in April.\nThe sales dashboard should be analyzed together with this operational context.\nIf the chart shows a decline after March, the likely cause may be operational supply disruption rather than lack of demand.",
+      "confidence": 0.75
+    }
+  ],
+  "next_action": {
+    "action": "generate_answer",
+    "reason": "The evidence is sufficient for a grounded answer."
+  },
+  "actions_taken": [
+    {
+      "type": "modalities_detected",
+      "modalities": [
+        "document",
+        "image"
+      ]
+    },
+    {
+      "type": "tools_selected",
+      "selected_tools": [
+        "analyze_image",
+        "analyze_document",
+        "validate_evidence",
+        "generate_answer"
+      ]
+    },
+    {
+      "type": "evidence_extracted",
+      "evidence": [
+        {
+          "type": "evidence",
+          "tool": "analyze_image",
+          "modality": "image",
+          "source": "examples/dashboard.png",
+          "content": "The image appears to contain visual information such as a chart, dashboard, diagram, or screenshot relevant to the question.",
+          "confidence": 0.7
+        },
+        {
+          "type": "evidence",
+          "tool": "analyze_document",
+          "modality": "document",
+          "source": "examples/context.txt",
+          "content": "The document states: The company had supply chain issues starting in April.\nThe sales dashboard should be analyzed together with this operational context.\nIf the chart shows a decline after March, the likely cause may be operational supply disruption rather than lack of demand.",
+          "confidence": 0.75
+        }
+      ]
+    },
+    {
+      "type": "validation_result",
+      "grounded": true,
+      "confidence": 0.72,
+      "used_modalities": [
+        "document",
+        "image"
+      ],
+      "missing_info": []
+    },
+    {
+      "type": "final_answer",
+      "answer": "Based on the available multimodal evidence, here is the answer:\n\nUser question:\nWhat is the main problem shown in the files, and what should we do next?\n\nEvidence used:\n- [image] The image appears to contain visual information such as a chart, dashboard, diagram, or screenshot relevant to the question.\n- [document] The document states: The company had supply chain issues starting in April.\nThe sales dashboard should be analyzed together with this operational context.\nIf the chart shows a decline after March, the likely cause may be operational supply disruption rather than lack of demand.\n\nConclusion:\nThe agent found evidence from multiple modalities and generated a grounded answer.\nIn a real implementation, this step should be performed by an LLM using only the evidence above.\n\nRecommended next step:\nReplace the mock tools with real model calls and improve the final reasoning prompt.\n\nConfidence:\n0.72\n\nUsed modalities:\n['document', 'image']\n"
+    }
+  ],
+  "validation": {
+    "grounded": true,
+    "confidence": 0.72,
+    "used_modalities": [
+      "document",
+      "image"
+    ],
+    "missing_info": []
+  },
+  "final_answer": "Based on the available multimodal evidence, here is the answer:\n\nUser question:\nWhat is the main problem shown in the files, and what should we do next?\n\nEvidence used:\n- [image] The image appears to contain visual information such as a chart, dashboard, diagram, or screenshot relevant to the question.\n- [document] The document states: The company had supply chain issues starting in April.\nThe sales dashboard should be analyzed together with this operational context.\nIf the chart shows a decline after March, the likely cause may be operational supply disruption rather than lack of demand.\n\nConclusion:\nThe agent found evidence from multiple modalities and generated a grounded answer.\nIn a real implementation, this step should be performed by an LLM using only the evidence above.\n\nRecommended next step:\nReplace the mock tools with real model calls and improve the final reasoning prompt.\n\nConfidence:\n0.72\n\nUsed modalities:\n['document', 'image']\n",
+  "errors": [],
+  "step_count": 5,
+  "max_steps": 8
+}

@@ -1,0 +1,79 @@
+{
+  "initial_state": "INGRESS",
+  "terminal_state": "DONE",
+  "comment": "Declarative description of the agent FSM. planner.py is the source of truth in code; this file documents the 12 required states, their entry action, guard and possible next states.",
+  "states": {
+    "INGRESS": {
+      "description": "Receive the user question and files, create the initial state",
+      "action": "create_initial_state",
+      "guard": "files_exist == true",
+      "next": ["DETECT_MODALITIES", "ERROR_RECOVERY"]
+    },
+    "DETECT_MODALITIES": {
+      "description": "Inspect the files and detect which modalities are available",
+      "action": "detect_modalities",
+      "guard": "has_supported_files == true",
+      "next": ["SELECT_TOOLS", "CLARIFY"]
+    },
+    "SELECT_TOOLS": {
+      "description": "Choose the tools to run according to the detected modalities",
+      "action": "choose_tools",
+      "guard": "modalities_count >= 2",
+      "next": ["PLAN_NEXT_ACTION", "CLARIFY"]
+    },
+    "PLAN_NEXT_ACTION": {
+      "description": "Decide the next action: run a pending tool, or move on to validation",
+      "action": "plan_next_action",
+      "guard": "pending_tools_not_empty -> ACT ; else -> VALIDATE",
+      "next": ["ACT", "VALIDATE"]
+    },
+    "ACT": {
+      "description": "Execute one selected tool to extract evidence from a single source",
+      "action": "run_tool",
+      "guard": "tool_ok == true",
+      "next": ["OBSERVE", "ERROR_RECOVERY"]
+    },
+    "OBSERVE": {
+      "description": "Observe the raw tool result and update the external state",
+      "action": "update_state",
+      "guard": "true",
+      "next": ["EXTRACT_EVIDENCE"]
+    },
+    "EXTRACT_EVIDENCE": {
+      "description": "Record the observed result as a normalized evidence item, then plan again",
+      "action": "record_evidence",
+      "guard": "true",
+      "next": ["PLAN_NEXT_ACTION"]
+    },
+    "VALIDATE": {
+      "description": "Check that the evidence is grounded and spans at least two modalities",
+      "action": "validate_grounding",
+      "guard": "used_modalities >= 2 && grounded == true",
+      "next": ["RESPOND", "CLARIFY"]
+    },
+    "ERROR_RECOVERY": {
+      "description": "A tool failed; retry it or fall back, while retries are below the limit",
+      "action": "retry_or_fallback",
+      "guard": "retries < 2",
+      "next": ["PLAN_NEXT_ACTION", "CLARIFY"]
+    },
+    "RESPOND": {
+      "description": "Render the final grounded answer with confidence and used modalities",
+      "action": "render_answer",
+      "guard": "grounded == true",
+      "next": ["DONE"]
+    },
+    "CLARIFY": {
+      "description": "Evidence is insufficient; ask the user for more information",
+      "action": "ask_clarification",
+      "guard": "true",
+      "next": ["DONE"]
+    },
+    "DONE": {
+      "description": "Terminal state: the agent has finished its run",
+      "action": null,
+      "guard": null,
+      "next": []
+    }
+  }
+}

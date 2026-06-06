@@ -1,0 +1,1 @@
+Add an image named dashboard.png here, or update sample_input.json to point to your own image file.
