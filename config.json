@@ -1,28 +1,20 @@
 {
   "agent_name": "Multimodal Investigation Agent",
-  "max_steps": 8,
+  "max_steps": 30,
   "minimum_modalities_required": 2,
-  "minimum_confidence": 0.65,
-  "allow_mock_tools": true,
+  "minimum_confidence": 0.5,
+  "use_real_tools": true,
+  "vision_model": "gpt-4o",
+  "text_model": "gpt-4o-mini",
+  "note": "OPENAI_API_KEY is read from the environment (or a local .env), never stored here. Set use_real_tools=false to force mock tools.",
   "supported_modalities": [
     "image",
     "document",
     "audio"
   ],
   "supported_extensions": {
-    "image": [
-      ".png",
-      ".jpg",
-      ".jpeg"
-    ],
-    "document": [
-      ".txt",
-      ".pdf"
-    ],
-    "audio": [
-      ".mp3",
-      ".wav",
-      ".m4a"
-    ]
+    "image": [".png", ".jpg", ".jpeg"],
+    "document": [".txt", ".pdf"],
+    "audio": [".mp3", ".wav", ".m4a"]
   }
 }

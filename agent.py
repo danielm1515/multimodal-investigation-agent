@@ -1,10 +1,18 @@
 """
 agent.py
 
-Main MultimodalAgent implementation.
+The MultimodalAgent drives an explicit finite state machine through the loop:
 
-This file contains the agent loop:
-run -> plan -> act -> observe -> update state
+    Sense  -> INGRESS / DETECT_MODALITIES / SELECT_TOOLS / EXTRACT_EVIDENCE
+    Plan   -> PLAN_NEXT_ACTION
+    Act    -> ACT
+    Observe-> OBSERVE
+    Validate -> VALIDATE
+    Respond / Retry / Clarify -> RESPOND / ERROR_RECOVERY / CLARIFY
+    DONE
+
+Every iteration is plan() -> act() -> observe(). observe() updates the external
+state, appends a tagged entry to the trace, and sets the next control_state.
 """
 
 from typing import Any, Dict, List
@@ -13,201 +21,204 @@ from state import create_initial_state
 from planner import plan_next_action
 from validator import validate_evidence
 
-from tools import (
-    detect_modalities,
-    select_tools_for_modalities,
-    analyze_image,
-    analyze_document,
-    transcribe_audio,
-    IMAGE_EXTENSIONS,
-    DOCUMENT_EXTENSIONS,
-    AUDIO_EXTENSIONS
-)
+import tools
 
 
 class MultimodalAgent:
-    """
-    A simple multimodal AI agent based on an external state machine.
+    """A small multimodal investigation agent based on an external state machine."""
 
-    Required methods:
-    - run()
-    - plan()
-    - act()
-    - observe()
-    """
-
-    def __init__(self, user_question: str, files: List[str], max_steps: int = 8):
+    def __init__(self, user_question: str, files: List[str], max_steps: int = 30,
+                 config: Dict[str, Any] = None):
         self.state = create_initial_state(user_question, files, max_steps=max_steps)
+        self.config = config or tools.load_config()
+        self.client = tools.get_openai_client(self.config)
+        self.total_tokens = {"prompt": 0, "completion": 0, "total": 0}
+
+    # ------------------------------------------------------------------ #
+    # Main loop
+    # ------------------------------------------------------------------ #
 
     def run(self) -> Dict[str, Any]:
-        """
-        Run the agent loop until DONE.
-        """
+        """Run the agent loop until the DONE state is reached."""
         while self.state["control_state"] != "DONE":
+            current_state = self.state["control_state"]
             decision = self.plan()
             result = self.act(decision)
-            self.observe(result)
-
+            self.observe(current_state, decision, result)
+        self.state["total_tokens"] = self.total_tokens
         return self.state
 
     def plan(self) -> Dict[str, str]:
-        """
-        Decide the next action.
-        """
+        """PLAN: ask the planner what to do in the current control_state."""
         decision = plan_next_action(self.state)
         self.state["next_action"] = decision
         return decision
 
     def act(self, decision: Dict[str, str]) -> Dict[str, Any]:
-        """
-        Execute the selected action.
-        """
+        """ACT: execute the chosen action and return its raw result."""
         action = decision["action"]
 
+        if action == "create_initial_state":
+            return {"type": "ingress_ok"}
+
         if action == "detect_modalities":
-            return detect_modalities(self.state["files"])
+            return tools.detect_modalities(self.state["files"])
 
-        if action == "select_tools":
-            return select_tools_for_modalities(self.state["available_modalities"])
+        if action == "choose_tools":
+            selected = tools.select_tools_for_modalities(self.state["available_modalities"])
+            selected["jobs"] = tools.build_tool_jobs(self.state["files"])
+            return selected
 
-        if action == "extract_evidence":
-            return self.extract_all_evidence()
+        if action == "plan_next_action":
+            return {"type": "planned"}
 
-        if action == "validate_evidence":
-            return validate_evidence(self.state["evidence"])
+        if action == "run_tool":
+            job = self.state["pending_tools"][0]
+            return tools.run_tool_job(job, self.state["user_question"], self.config, self.client)
 
-        if action == "generate_answer":
-            return self.generate_answer()
+        if action == "update_state":
+            return {"type": "observed", "observed": self.state["last_tool_result"]}
+
+        if action == "record_evidence":
+            # The raw tool result (with its tokens) was already counted in ACT;
+            # here we only record the normalized evidence item. We do NOT re-expose
+            # tokens at the top level, so they are never double-counted in the trace.
+            return {"type": "evidence_extracted", "evidence": self.state["last_tool_result"]}
+
+        if action == "validate_grounding":
+            return validate_evidence(
+                self.state["evidence"],
+                minimum_modalities=self.config.get("minimum_modalities_required", 2),
+                minimum_confidence=self.config.get("minimum_confidence", 0.0),
+            )
+
+        if action == "retry_or_fallback":
+            return self._retry_or_fallback()
+
+        if action == "render_answer":
+            return tools.generate_answer(self.state, self.config, self.client)
 
         if action == "ask_clarification":
             return {
                 "type": "clarification",
-                "message": (
-                    "I need more information or another modality to answer reliably. "
-                    "Please provide at least two supported modalities, such as image + text."
-                )
+                "message": self._clarification_message(),
             }
 
-        if action == "stop_with_error":
-            return {
-                "type": "error",
-                "message": decision.get("reason", "The agent stopped with an error.")
-            }
+        return {"type": "error", "message": f"Unknown action: {action}"}
 
-        return {
-            "type": "error",
-            "message": f"Unknown action: {action}"
-        }
-
-    def extract_all_evidence(self) -> Dict[str, Any]:
-        """
-        Run the appropriate tool for each file.
-        """
-        evidence = []
-
-        for file_path in self.state["files"]:
-            lowered = file_path.lower()
-
-            if lowered.endswith(IMAGE_EXTENSIONS):
-                evidence.append(analyze_image(file_path))
-
-            elif lowered.endswith(DOCUMENT_EXTENSIONS):
-                evidence.append(analyze_document(file_path))
-
-            elif lowered.endswith(AUDIO_EXTENSIONS):
-                evidence.append(transcribe_audio(file_path))
-
-        return {
-            "type": "evidence_extracted",
-            "evidence": evidence
-        }
-
-    def generate_answer(self) -> Dict[str, Any]:
-        """
-        Generate a final answer from the extracted evidence.
-        """
-        evidence_text = "\n".join([
-            f"- [{item['modality']}] {item['content']}"
-            for item in self.state["evidence"]
-        ])
-
-        confidence = self.state["validation"]["confidence"]
-        used_modalities = self.state["validation"]["used_modalities"]
-
-        answer = f"""Based on the available multimodal evidence, here is the answer:
-
-User question:
-{self.state["user_question"]}
-
-Evidence used:
-{evidence_text}
-
-Conclusion:
-The agent found evidence from multiple modalities and generated a grounded answer.
-In a real implementation, this step should be performed by an LLM using only the evidence above.
-
-Recommended next step:
-Replace the mock tools with real model calls and improve the final reasoning prompt.
-
-Confidence:
-{confidence}
-
-Used modalities:
-{used_modalities}
-"""
-
-        return {
-            "type": "final_answer",
-            "answer": answer
-        }
-
-    def observe(self, result: Dict[str, Any]) -> None:
-        """
-        Observe the action result and update the external state.
-        """
+    def observe(self, acted_state: str, decision: Dict[str, str], result: Dict[str, Any]) -> None:
+        """OBSERVE: update state, append the trace entry, set the next control_state."""
         self.state["step_count"] += 1
-        self.state["actions_taken"].append(result)
+        rtype = result.get("type")
 
-        result_type = result.get("type")
+        # default next state proposed by the planner
+        next_state = decision["next_state"]
 
-        if result_type == "modalities_detected":
+        if rtype == "modalities_detected":
             self.state["available_modalities"] = result["modalities"]
-            self.state["control_state"] = "MODALITIES_DETECTED"
 
-        elif result_type == "tools_selected":
+        elif rtype == "tools_selected":
             self.state["selected_tools"] = result["selected_tools"]
-            self.state["control_state"] = "TOOLS_SELECTED"
+            self.state["pending_tools"] = result["jobs"]
 
-        elif result_type == "evidence_extracted":
-            self.state["evidence"] = result["evidence"]
-            self.state["control_state"] = "EVIDENCE_EXTRACTED"
+        elif rtype == "evidence":  # a tool succeeded during ACT
+            self.state["last_tool_result"] = result
 
-        elif result_type == "validation_result":
+        elif rtype == "tool_error":  # a tool failed during ACT -> recover
+            self.state["last_tool_result"] = result
+            self.state["errors"].append(result)
+            next_state = "ERROR_RECOVERY"
+
+        elif rtype == "evidence_extracted":
+            self.state["evidence"].append(result["evidence"])
+            if self.state["pending_tools"]:
+                self.state["pending_tools"].pop(0)  # this job is done
+
+        elif rtype == "recovery":
+            # On giving up a source we drop it (no mock evidence is fabricated).
+            if result.get("mode") == "fallback":
+                if self.state["pending_tools"]:
+                    self.state["pending_tools"].pop(0)
+
+        elif rtype == "validation_result":
             self.state["validation"] = {
                 "grounded": result["grounded"],
                 "confidence": result["confidence"],
                 "used_modalities": result["used_modalities"],
-                "missing_info": result["missing_info"]
+                "missing_info": result["missing_info"],
             }
-            self.state["control_state"] = "VALIDATED"
+            if not result["grounded"]:
+                next_state = "CLARIFY"
 
-        elif result_type == "final_answer":
+        elif rtype == "final_answer":
             self.state["final_answer"] = result["answer"]
-            self.state["control_state"] = "DONE"
 
-        elif result_type == "clarification":
+        elif rtype == "clarification":
             self.state["final_answer"] = result["message"]
-            self.state["control_state"] = "DONE"
 
-        elif result_type == "error":
+        elif rtype == "error":
             self.state["errors"].append(result)
             self.state["final_answer"] = result["message"]
-            self.state["control_state"] = "DONE"
+            next_state = "DONE"
 
-        else:
-            self.state["errors"].append({
-                "type": "error",
-                "message": f"Unknown result type: {result_type}"
-            })
-            self.state["final_answer"] = "The agent failed because it received an unknown result type."
-            self.state["control_state"] = "DONE"
+        # record the trace entry, tagged with the state it was produced in
+        self._trace(acted_state, result)
+
+        self.state["control_state"] = next_state
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+
+    def _retry_or_fallback(self) -> Dict[str, Any]:
+        """
+        Handle a failed tool: retry while retries < 2, otherwise drop this source
+        and continue (no mock evidence is fabricated).
+        """
+        self.state["retries"] += 1
+        job = self.state["pending_tools"][0] if self.state["pending_tools"] else None
+
+        if self.state["retries"] < 2 or job is None:
+            return {
+                "type": "recovery",
+                "mode": "retry",
+                "message": f"Retrying failed tool (attempt {self.state['retries']}).",
+            }
+
+        return {
+            "type": "recovery",
+            "mode": "fallback",
+            "message": "Retry limit reached; dropping this source (no mock evidence).",
+        }
+
+    def _clarification_message(self) -> str:
+        missing = self.state["validation"].get("missing_info", [])
+        detail = (" Details: " + "; ".join(missing)) if missing else ""
+        return (
+            "I cannot produce a grounded answer yet. I need at least two supported "
+            "modalities (for example image + document)." + detail
+        )
+
+    def _trace(self, acted_state: str, result: Dict[str, Any]) -> None:
+        """Append a compact, tagged trace entry mirroring the assignment example."""
+        entry = {"state": acted_state, "type": result.get("type")}
+        for key in ("modalities", "selected_tools", "grounded", "confidence",
+                    "used_modalities", "tool", "modality", "mode", "message"):
+            if key in result:
+                entry[key] = result[key]
+        if result.get("type") == "evidence_extracted":
+            ev = result["evidence"]
+            entry["evidence"] = {"tool": ev.get("tool"), "modality": ev.get("modality"),
+                                 "source": ev.get("source"), "content": ev.get("content")}
+        if result.get("type") == "final_answer":
+            entry["answer"] = result["answer"]
+
+        # track token usage from any result that carries it
+        tok = result.get("tokens")
+        if tok:
+            entry["tokens"] = tok
+            self.total_tokens["prompt"] += tok.get("prompt", 0)
+            self.total_tokens["completion"] += tok.get("completion", 0)
+            self.total_tokens["total"] += tok.get("total", 0)
+
+        self.state["actions_taken"].append(entry)

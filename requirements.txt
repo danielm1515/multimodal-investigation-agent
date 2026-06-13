@@ -1,0 +1,3 @@
+# Real-tool dependencies. The agent also runs fully in mock mode without these.
+openai>=1.0.0      # analyze_image (vision), analyze_document, generate_answer
+PyMuPDF>=1.23.0    # PDF text extraction (imported as `fitz`) in analyze_document

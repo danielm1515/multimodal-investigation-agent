@@ -9,7 +9,7 @@ It is updated after every action by the agent's observe() step.
 from typing import Any, Dict, List
 
 
-def create_initial_state(user_question: str, files: List[str], max_steps: int = 12) -> Dict[str, Any]:
+def create_initial_state(user_question: str, files: List[str], max_steps: int = 30) -> Dict[str, Any]:
     """
     Create the initial external state for the agent.
 

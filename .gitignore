@@ -1,0 +1,25 @@
+# Local environment / secrets
+.env
+
+# Editor & tooling config
+.claude/
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Logs & local artifacts
+*.log
+
+# Office temp/lock files
+~$*
+
+# Assignment materials (kept out of the public code repo)
+task.pdf
+multimodal_agent_report.docx
